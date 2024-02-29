@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 leptos = { version = "0.6.6", features = ["csr"] }
+gloo-timers = {version = "0.3.0", features = ["futures"] }

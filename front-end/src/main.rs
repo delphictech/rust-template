@@ -1,5 +1,9 @@
-use leptos::*;
+mod components {
+    pub mod app;
+}
+
+use components::app::App;
 
 fn main() {
-    mount_to_body(|| view! { <p>"Hello, world!"</p> })
+    leptos::mount_to_body(App)
 }
