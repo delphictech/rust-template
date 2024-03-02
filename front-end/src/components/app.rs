@@ -1,6 +1,8 @@
 use gloo_timers::future::TimeoutFuture;
 use leptos::*;
 
+use crate::components::fetch::FetchComponent;
+
 // Here we define an async function
 // This could be anything: a network request, database read, etc.
 // Here, we just multiply a number by 10
@@ -52,6 +54,7 @@ pub fn App() -> impl IntoView {
         >
             "Click me"
         </button>
+        <FetchComponent />
         <p>
             <code>"stable"</code>": " {move || stable.get()}
         </p>

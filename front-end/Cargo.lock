@@ -242,6 +242,11 @@ version = "0.1.0"
 dependencies = [
  "gloo-timers",
  "leptos",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

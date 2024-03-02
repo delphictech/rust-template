@@ -1,5 +1,6 @@
 mod components {
     pub mod app;
+    pub mod fetch;
 }
 
 use components::app::App;
