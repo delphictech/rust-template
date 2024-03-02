@@ -1,40 +1,84 @@
 use leptos::*;
-use wasm_bindgen::{JsCast, JsValue};
+use serde::Deserialize;
+use serde_wasm_bindgen::from_value;
+use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::Response;
+use web_sys::{console, Request, RequestInit, RequestMode, Response};
 
-async fn fetch_post() -> Result<String, JsValue> {
+// Define a structure that matches the JSON data format you expect from the API.
+#[derive(Deserialize, Debug)]
+struct Post {
+    title: String,
+}
+
+// Asynchronously fetches the title of the first post from JSONPlaceholder.
+async fn fetch_post_title() -> Result<String, String> {
+    // Prepare the request to the API.
+    let url = "https://jsonplaceholder.typicode.com/posts";
+    let mut opts = RequestInit::new();
+    opts.method("GET");
+    opts.mode(RequestMode::Cors);
+
+    let request = match Request::new_with_str_and_init(url, &opts) {
+        Ok(req) => req,
+        Err(_) => return Err("Failed to create request".into()),
+    };
+
     let window = web_sys::window().expect("no global `window` exists");
-    let fetch = window.fetch_with_str("https://jsonplaceholder.typicode.com/posts/1");
+    let fetch = window.fetch_with_request(&request);
 
-    let response = JsFuture::from(fetch).await?.dyn_into::<Response>()?;
+    // Perform the fetch operation and process the response.
+    let response = JsFuture::from(fetch)
+        .await
+        .map_err(|_| "Network error")
+        .and_then(|resp| {
+            resp.dyn_into::<Response>()
+                .map_err(|_| "Failed to cast response".into())
+        })?;
+
     if response.ok() {
-        let json = JsFuture::from(response.json()?).await?;
-        Ok(json.as_string().unwrap_or_default())
+        let json = JsFuture::from(response.json().unwrap())
+            .await
+            .map_err(|_| "Failed to parse JSON")?;
+
+        // Deserialize the JSON into a Vec<Post> and extract the title of the first post.
+        let posts: Vec<Post> = from_value(json).map_err(|_| "Failed to deserialize JSON")?;
+        posts
+            .get(0)
+            .map(|post| post.title.clone())
+            .ok_or_else(|| "Post title not found".into())
     } else {
-        Err(JsValue::from_str("Failed to fetch post"))
+        Err("Fetch request failed".into())
     }
 }
 
+// A Leptos component that fetches and displays a post title.
 #[component]
 pub fn FetchComponent() -> impl IntoView {
-    // Remove the `count` signal as it's not used for fetching API data
-    // let (count, set_count) = create_signal(0);
+    let (post_title, set_post_title) = create_signal(String::from("Loading..."));
 
-    let post_data = create_resource(|| (), |_| async move { fetch_post().await.ok() });
+    // Fetch the post title when the component is mounted.
+    let async_result = move || {
+        // let set_post_title = set_post_title.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            match fetch_post_title().await {
+                Ok(title) => {
+                    console::log_1(&"Request created successfully".into());
+                    // Assuming `title` is a String
+                    console::log_1(&JsValue::from_str(&title));
 
-    // // Adjusting view to display fetched post data
-    let post_result = move || {
-        post_data.get().as_ref().map_or_else(
-            || "Fetching post...".into(),             // Used if Option is None
-            |data| format!("Post fetched: {}", data), // Used if Option is Some
-        )
+                    set_post_title.set(title)
+                } // Correctly call the setter
+                Err(error_message) => set_post_title.set(error_message), // Correctly call the setter
+            }
+        });
     };
 
     view! {
-        <p>
-            {post_result}
-
-        </p>
+        <div>
+        <p>testing</p>
+            <p>{post_title.get()}</p>
+            <p>data {async_result}</p>
+        </div>
     }
 }
