@@ -1,84 +1,103 @@
-use leptos::*;
-use serde::Deserialize;
-use serde_wasm_bindgen::from_value;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::JsFuture;
-use web_sys::{console, Request, RequestInit, RequestMode, Response};
+use leptos::{error::Result, *};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-// Define a structure that matches the JSON data format you expect from the API.
-#[derive(Deserialize, Debug)]
-struct Post {
-    title: String,
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Cat {
+    url: String,
 }
 
-// Asynchronously fetches the title of the first post from JSONPlaceholder.
-async fn fetch_post_title() -> Result<String, String> {
-    // Prepare the request to the API.
-    let url = "https://jsonplaceholder.typicode.com/posts";
-    let mut opts = RequestInit::new();
-    opts.method("GET");
-    opts.mode(RequestMode::Cors);
+#[derive(Error, Clone, Debug)]
+pub enum CatError {
+    #[error("Please request more than zero cats.")]
+    NonZeroCats,
+}
 
-    let request = match Request::new_with_str_and_init(url, &opts) {
-        Ok(req) => req,
-        Err(_) => return Err("Failed to create request".into()),
-    };
+type CatCount = usize;
 
-    let window = web_sys::window().expect("no global `window` exists");
-    let fetch = window.fetch_with_request(&request);
-
-    // Perform the fetch operation and process the response.
-    let response = JsFuture::from(fetch)
-        .await
-        .map_err(|_| "Network error")
-        .and_then(|resp| {
-            resp.dyn_into::<Response>()
-                .map_err(|_| "Failed to cast response".into())
-        })?;
-
-    if response.ok() {
-        let json = JsFuture::from(response.json().unwrap())
-            .await
-            .map_err(|_| "Failed to parse JSON")?;
-
-        // Deserialize the JSON into a Vec<Post> and extract the title of the first post.
-        let posts: Vec<Post> = from_value(json).map_err(|_| "Failed to deserialize JSON")?;
-        posts
-            .get(0)
-            .map(|post| post.title.clone())
-            .ok_or_else(|| "Post title not found".into())
+async fn fetch_cats(count: CatCount) -> Result<Vec<String>> {
+    if count > 0 {
+        // make the request
+        let res = reqwasm::http::Request::get(&format!(
+            "https://api.thecatapi.com/v1/images/search?limit={count}",
+        ))
+        .send()
+        .await?
+        // convert it to JSON
+        .json::<Vec<Cat>>()
+        .await?
+        // extract the URL field for each cat
+        .into_iter()
+        .take(count)
+        .map(|cat| cat.url)
+        .collect::<Vec<_>>();
+        Ok(res)
     } else {
-        Err("Fetch request failed".into())
+        Err(CatError::NonZeroCats.into())
     }
 }
 
-// A Leptos component that fetches and displays a post title.
-#[component]
 pub fn FetchComponent() -> impl IntoView {
-    let (post_title, set_post_title) = create_signal(String::from("Loading..."));
+    let (cat_count, set_cat_count) = create_signal::<CatCount>(0);
 
-    // Fetch the post title when the component is mounted.
-    let async_result = move || {
-        // let set_post_title = set_post_title.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            match fetch_post_title().await {
-                Ok(title) => {
-                    console::log_1(&"Request created successfully".into());
-                    // Assuming `title` is a String
-                    console::log_1(&JsValue::from_str(&title));
+    // we use local_resource here because
+    // 1) our error type isn't serializable/deserializable
+    // 2) we're not doing server-side rendering in this example anyway
+    //    (during SSR, create_resource will begin loading on the server and resolve on the client)
+    let cats = create_local_resource(move || cat_count.get(), fetch_cats);
 
-                    set_post_title.set(title)
-                } // Correctly call the setter
-                Err(error_message) => set_post_title.set(error_message), // Correctly call the setter
-            }
-        });
+    let fallback = move |errors: RwSignal<Errors>| {
+        let error_list = move || {
+            errors.with(|errors| {
+                errors
+                    .iter()
+                    .map(|(_, e)| view! { <li>{e.to_string()}</li> })
+                    .collect_view()
+            })
+        };
+
+        view! {
+            <div class="error">
+                <h2>"Error"</h2>
+                <ul>{error_list}</ul>
+            </div>
+        }
+    };
+
+    // the renderer can handle Option<_> and Result<_> states
+    // by displaying nothing for None if the resource is still loading
+    // and by using the ErrorBoundary fallback to catch Err(_)
+    // so we'll just use `.and_then()` to map over the happy path
+    let cats_view = move || {
+        cats.and_then(|data| {
+            data.iter()
+                .map(|s| view! { <p><img src={s}/></p> })
+                .collect_view()
+        })
     };
 
     view! {
         <div>
-        <p>testing</p>
-            <p>{post_title.get()}</p>
-            <p>data {async_result}</p>
+            <label>
+                "How many cats would you like?"
+                <input
+                    type="number"
+                    prop:value=move || cat_count.get().to_string()
+                    on:input=move |ev| {
+                        let val = event_target_value(&ev).parse::<CatCount>().unwrap_or(0);
+                        set_cat_count.set(val);
+                    }
+                />
+            </label>
+            <Transition fallback=move || {
+                view! { <div>"Loading (Suspense Fallback)..."</div> }
+            }>
+                <ErrorBoundary fallback>
+                <div>
+                    {cats_view}
+                </div>
+                </ErrorBoundary>
+            </Transition>
         </div>
     }
 }
