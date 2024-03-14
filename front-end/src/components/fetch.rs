@@ -37,6 +37,7 @@ async fn fetch_cats(count: CatCount) -> Result<Vec<String>> {
     }
 }
 
+#[allow(non_snake_case)]
 pub fn FetchComponent() -> impl IntoView {
     let (cat_count, set_cat_count) = create_signal::<CatCount>(0);
 
